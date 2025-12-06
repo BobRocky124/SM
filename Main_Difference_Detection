@@ -1,0 +1,97 @@
+import cv2
+import numpy as np
+from pathlib import Path
+
+def capture_image(output_path="capture.jpg", camera_index=0):
+    """
+    Capture a single image from the camera and save it. Index 0 for integrated cam, 1 for external
+    """
+    cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        raise Exception("Could not open camera. Check connection and index.")
+
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret:
+        raise Exception("Failed to capture image from camera.")
+
+    cv2.imwrite(output_path, frame)
+    print(f"Image saved to {output_path}")
+    return output_path
+
+
+def detect_defects(img_path1, img_path2, output_dir="output", threshold=25):
+    """
+    Compare two images and highlight differences.
+    Saves three files: difference grayscale, defect mask, defects overlay.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
+
+    # Load images
+    img1 = cv2.imread(str(img_path1))
+    img2 = cv2.imread(str(img_path2))
+
+    if img1 is None or img2 is None:
+        raise ValueError("One of the images could not be loaded.")
+
+    # Resize second image to match first
+    img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
+
+    # Convert to grayscale
+    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+    # Compute difference
+    diff = cv2.absdiff(gray1, gray2)
+
+    # Threshold
+    _, thresh = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)
+
+    # Morphology cleaning
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel)
+
+    # Overlay differences
+    defects_overlay = img1.copy()
+    defects_overlay[mask > 0] = [0, 0, 255]
+
+    # Save outputs
+    diff_path = output_dir / "difference_gray.jpg"
+    mask_path = output_dir / "defect_mask.jpg"
+    overlay_path = output_dir / "defects_overlay.jpg"
+
+    cv2.imwrite(str(diff_path), diff)
+    cv2.imwrite(str(mask_path), mask)
+    cv2.imwrite(str(overlay_path), defects_overlay)
+
+    # Summary
+    num_defects = np.count_nonzero(mask)
+    if num_defects == 0:
+        print("No defects found")
+    else:
+        print(f"Defects detected: {num_defects} pixels differ")
+
+    return {
+        "diff": diff_path,
+        "mask": mask_path,
+        "overlay": overlay_path,
+        "num_defects": num_defects
+    }
+
+
+if __name__ == "__main__":
+    # Example usage
+
+    # Step 1: capture a new image
+    captured_image_path = capture_image(output_path="current_capture.jpg", camera_index=1)
+
+    # Step 2: define reference image
+    reference_image_path = r"C:\Users\wdrop\OneDrive\Pictures\Camera Roll\reference.jpg"
+
+    # Step 3: run defect detection
+    results = detect_defects(reference_image_path, captured_image_path, output_dir="output")
+
+    print("Results saved to:", results)
